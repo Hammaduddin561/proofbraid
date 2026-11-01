@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proofbraid"
+version = "0.1.0"
+description = "A local, self-correcting coding agent: AST dependency graph + Meta Model API + pre-execution verification"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+proofbraid = "proofbraid.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
