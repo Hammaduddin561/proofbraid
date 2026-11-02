@@ -4,7 +4,7 @@ Usage:
     python3 -m proofbraid index <repo>
     python3 -m proofbraid graph <repo>
     python3 -m proofbraid verify <repo>
-    python3 -m proofbraid propose <repo> "task description" [--apply]
+    python3 -m proofbraid propose <repo> "task description" [--diff] [--apply]
     python3 -m proofbraid daemon <repo> [--interval SECONDS] [--once]
     python3 -m proofbraid hypotheses <repo>
 """
@@ -66,7 +66,7 @@ def _cmd_verify(args) -> int:
 def _cmd_propose(args) -> int:
     report = propose_mod.run_propose(
         Path(args.repo), args.task, apply=args.apply,
-        provider=args.provider, sandbox=args.sandbox,
+        provider=args.provider, sandbox=args.sandbox, diff=args.diff,
     )
     print(json.dumps(report, indent=2))
     return 0 if report.get("ok") else 1
@@ -123,6 +123,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("propose")
     p.add_argument("repo")
     p.add_argument("task")
+    p.add_argument("--diff", action="store_true",
+                   help="request and apply strict unified diffs")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--provider", default="meta",
                    choices=["meta", "baseten", "fireworks", "all"],

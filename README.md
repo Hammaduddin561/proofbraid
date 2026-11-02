@@ -1,152 +1,147 @@
-# Proofbraid — a local, self-correcting coding agent
+# Proofbraid: a local coding agent that verifies before it applies
 
-Proofbraid is the hackathon build submitted for the Meta Global AI Developer
-Hackathon (Indie Dev Track): a lightweight, local developer tool that fixes
-**context degradation and hallucinations in autonomous coding agents** during
-long, multi-file tasks.
+Proofbraid is a local developer tool built for the Meta Global AI Developer
+Hackathon (Indie Dev Track). It stops AI coding agents from breaking code
+during long tasks that touch many files.
+
+License: MIT, see LICENSE.
 
 ## The idea in one paragraph
 
-Standard vector retrieval dumps outdated syntax and broken function
-interfaces into the prompt, so coding agents confidently apply changes that
-don't fit the repo. Proofbraid instead maps the repo's real-time AST dependency
-graph, retrieves only structurally related code spans, asks Meta's Model API
-(Muse Spark) to propose a change, and then — before anything touches the real
-repo — runs a **pre-execution verification loop** (linters, compilers, test
-suites) against the proposed change in a disposable copy. Verified hypotheses
-are saved; superseded ones are evicted from memory. The goal: a dependable
-coding agent for solo developers that self-corrects without blowing up the
-context window or needing massive cloud infrastructure.
+Proofbraid is a dependency graph plus verify before apply plus hypothesis
+eviction. It maps a repo into a real dependency graph from the Python
+parser, retrieves only the code that is structurally related to a task,
+and asks the Meta Model API (Muse Spark) to propose a change. Before
+anything touches the real files, it checks that change in a disposable
+copy of the repo: compile, lint and tests. Verified fixes are recorded as
+hypotheses, and older hypotheses on the same files are evicted so stale
+claims never linger. A dry run is the default. Nothing is applied without
+a verified pass and an explicit `--apply` flag.
 
-## Architecture
+## Commands
 
 ```
-proofbraid index    <repo>     -> .proofbraid/graph.json   (AST symbols + import/call graph)
-proofbraid graph    <repo>     -> print the graph
-proofbraid vectors  <repo>     -> build hybrid-retrieval vector shards
-proofbraid propose  <repo> "task" [--apply] [--provider meta|baseten|fireworks|all] [--sandbox local|modal]
-    1. retrieve spans: hybrid lexical + local-vector fusion (RRF),
-       lexical fallback when no vectors exist
-    2. ask the chosen provider for new file contents
-    3. write them to a disposable temp copy of the repo
-    4. run the verification loop on the temp copy (locally, or in a Modal sandbox)
-    5. on PASS: save the hypothesis, evict superseded ones, optionally --apply
-    6. on FAIL: report failures, keep the real repo untouched
-proofbraid verify   <repo>     -> run the verification loop on a repo directly
-proofbraid daemon   <repo>     -> watch the repo, re-index on change
-proofbraid hypotheses <repo>   -> list saved hypotheses
-proofbraid providers          -> show each partner provider's role and config status
+proofbraid index <repo>                 parse repo -> .proofbraid/graph.json
+proofbraid graph <repo>                 print symbols and call edges
+proofbraid vectors <repo>               build local hybrid retrieval shards
+proofbraid propose <repo> "task" [--provider meta|baseten] [--diff] [--apply]
+proofbraid verify <repo>                run the verification loop directly
+proofbraid hypotheses <repo>            list saved and evicted hypotheses
+proofbraid providers                    show provider roles and config state
+proofbraid daemon <repo> [--once]       reindex on file change
 ```
+
+What `propose` does:
+
+1. It retrieves spans by fusing lexical matches with local vector
+   similarity (RRF, k=60). Lexical retrieval is the proven fallback when
+   no vectors exist.
+2. It asks the chosen provider for a proposal. By default the model
+   returns full new file contents as JSON. With `--diff` it returns one
+   unified diff per file instead.
+3. It writes the proposal into a disposable temp copy of the repo. In diff
+   mode every diff is parsed strictly and applied in memory first. A
+   malformed diff (bad header, bad hunk header, wrong line counts, context
+   that does not match, unsafe path, or a file deletion) fails the whole
+   proposal with a clear message, and nothing is partly applied.
+4. It runs verification on the temp copy: `py_compile`, a linter when one
+   is installed, and pytest or unittest when tests exist.
+5. On a pass it saves the hypothesis, evicts superseded ones, and applies
+   the change only with `--apply`. On a failure it reports the reasons and
+   leaves the real repo untouched.
+
+The code also accepts `--provider fireworks`, `--provider all` and
+`--sandbox modal`. These exist in code but are not configured or claimed
+for this submission.
 
 ## How to run
 
 ```bash
-cd project
 python3 -m venv .venv
 .venv/bin/pip install -e .
 .venv/bin/proofbraid index examples/sample_repo
 .venv/bin/proofbraid graph examples/sample_repo
 .venv/bin/proofbraid verify examples/sample_repo
-.venv/bin/proofbraid propose examples/sample_repo "fix the off-by-one in add()"
+.venv/bin/proofbraid propose examples/sample_repo "fix the off by one in add()"
+.venv/bin/proofbraid propose examples/sample_repo "fix the off by one in add()" --diff
+python -m unittest discover -s tests
 ```
 
-(No third-party dependencies: pure Python 3.10+ stdlib, so the install
-is instant. Without the venv, `PYTHONPATH=src python3 -m proofbraid ...`
-works too.)
+There are no third party dependencies. It is pure Python 3.10+ standard
+library, so the install is instant. Without the venv,
+`PYTHONPATH=src python3 -m proofbraid ...` works too. Runtime data lives
+in `.proofbraid` inside the target repo. The test suite mocks every model
+call and needs no keys.
 
-## Meta Model API setup (still to do)
+## Partner API: Meta Model API (Muse Spark), the primary proposer
 
-Proofbraid talks to the Meta Model API with the OpenAI-compatible Chat
-Completions shape (see `src/proofbraid/meta_client.py`):
+This is the default provider for every `propose` call (see
+`src/proofbraid/meta_client.py` and `src/proofbraid/providers.py`).
 
 - Base URL: `https://api.meta.ai/v1`
 - Auth: `Authorization: Bearer $MODEL_API_KEY`
-- Default model: `muse-spark-1.3`
-
-Set the key and go:
+- Endpoint: POST `/v1/chat/completions`
+- Default model: `muse-spark-1.3`. Set `PROOFBRAID_MODEL` to use another
+  model, such as `muse-spark-1.3-contributor`.
+- Proven live on Oct 27: `propose` on the sample repo returned
+  `ok: true` and `verified: true` and recorded a hypothesis, as a dry run.
 
 ```bash
-export MODEL_API_KEY="LLM|..."
-python3 -m proofbraid propose <repo> "your task"
+export MODEL_API_KEY="..."
+proofbraid propose examples/sample_repo "fix the off by one in add()"
+proofbraid propose <repo> "task" --apply   # only after a verified pass
 ```
 
 Without a key, `propose` fails cleanly with instructions instead of
-pretending to work. Claim the hackathon's $150 in Meta Model API credits
-(the claim form link came in the Cerebral Valley blast on Oct 26, 2026;
-claim deadline Nov 4, 9:00 PM ET) and check the Billing page to confirm the
-credits landed. Note: using the credits requires a card on file, with a
-spend-limit notification available on the Billing page.
+pretending to work.
 
-API details above come from third-party write-ups of Meta's docs, not from
-a verified official doc read during scaffolding — confirm the endpoint and
-model ID against dev.meta.ai before demo day.
+## Baseten hosted Muse Spark Open: wired, live run pending
 
-## All partners, each with a distinct job
+Baseten serves Meta open weights through the same chat completions shape.
+The provider path is wired and unit tested, but the live Baseten run has
+not happened yet. Until it succeeds, this submission does not claim
+Baseten as a second proposer.
 
-Every partner speaks the OpenAI-compatible Chat Completions shape, so one
-generic client (`src/proofbraid/providers.py`) serves all of them. Endpoints
-and key names are confirmed from the providers' own docs. Model IDs for
-Baseten and Fireworks are NOT guessed: pick them from the provider's own
-catalog (Baseten: `baseten model-api list` or GET /v1/models; Fireworks:
-its model library, IDs carry the `accounts/fireworks/models/` prefix).
-
-| Partner | Role | How to use |
-|---|---|---|
-| Meta Model API ($150) | Primary proposer: hosted Muse Spark generates diffs | `proofbraid propose <repo> "task"` |
-| Baseten ($100 + 2M TPM) | Open-weights proposer: Muse Spark Open / Glimmer class models; also the path to the $10K Best Build on Meta Open Weights bonus | `proofbraid propose <repo> "task" --provider baseten` |
-| Fireworks ($25) | Auxiliary calls: cheap, fast, small jobs (span ranking, hypothesis summaries) so Meta credits pay for diffs, not chores | automatic when configured; skipped silently when not |
-| Modal ($100) | Sandboxed verification: untrusted model code runs its tests in an isolated sandbox instead of next to your real files | `proofbraid propose <repo> "task" --sandbox modal` |
+- Base URL: `https://inference.baseten.co/v1`
+- Auth: `Authorization: Bearer $BASETEN_API_KEY`
+- Model: exactly `meta-models/muse-spark-open-1026`
 
 ```bash
-export BASETEN_API_KEY='...' BASETEN_MODEL='...'     # open-weights proposer
-export FIREWORKS_API_KEY='...' FIREWORKS_MODEL='...' # aux calls
-export MODAL_SANDBOX=1 MODAL_TOKEN_ID='...' MODAL_TOKEN_SECRET='...' # sandbox verify
-proofbraid providers   # shows each provider's role and config status
+export BASETEN_API_KEY="..." BASETEN_MODEL="meta-models/muse-spark-open-1026"
+proofbraid propose examples/sample_repo "fix the off by one in add()" --provider baseten
 ```
 
-`--provider all` cascades meta → baseten → fireworks until one returns a
-proposal, and reports every attempt. `--sandbox modal` falls back to local
-verification (and says so) when Modal is not configured. The live Modal
-sandbox path follows Modal's Sandbox API shape but has not been run
-against real Modal credentials — verify it against Modal's Sandboxes docs
-before demo day. Partner credits go to select participants, so apply
-through their forms early.
+Without a key, `propose --provider baseten` fails cleanly with
+instructions.
 
-## Current scope and honest limits
+## Modal and Fireworks
 
-- The AST graph indexer covers **Python** today (stdlib `ast`). The seam
-  for tree-sitter (other languages) is marked in `graph.py`.
-- Retrieval is hybrid: lexical match fused with local vector similarity
-  via reciprocal rank fusion (RRF, k=60), graph neighbours added only
-  after direct results. Vectors are **hashed TF-IDF (stdlib, 256 dims),
-  not neural embeddings** — the fusion method, stale-omission rule, and
-  graph-after-direct ordering are the transfer from prior research on
-  evidence-grounded retrieval, re-implemented fresh here; the embedding
-  model itself is intentionally stdlib. Vectors for stale files are
-  omitted from vector results, and similarity never bypasses the
-  verification gate. Hybrid retrieval is experimental and unmeasured:
-  lexical retrieval remains the proven fallback, and no retrieval-quality
-  improvement is claimed until measured.
-- Indexed files carry provenance: SHA-256 content hash plus git HEAD and
-  per-file last commit when the repo is a git repo (absent otherwise).
-- `propose` asks the model for **full new file contents** (JSON), not
-  unified diffs. Unified-diff parsing is the next step.
-- The verification loop runs `py_compile`, an optional linter if one is
-  installed (ruff/flake8, skipped gracefully if absent), and pytest or
-  unittest if tests exist. A repo with no tests still gets compile checks.
-- `propose` defaults to dry-run: the real repo is never modified unless
-  you pass `--apply` after a verified pass.
-- The daemon polls file mtimes (simple, portable); inotify/FSEvents
-  watching is a later optimisation.
-```
+Code paths for a Modal sandbox (`src/proofbraid/sandbox.py`) and Fireworks
+summaries (`src/proofbraid/aux.py`, `src/proofbraid/providers.py`) exist in
+the repo. They are not configured, not tested live, and not claimed in
+this submission. Verification runs locally, and the Fireworks summary is
+skipped when no key is set.
+
+## Scope and honest limits
+
+- The indexer covers Python only, using the standard library `ast`
+  module. There is no tree-sitter and no JS or TS support.
+- `propose` returns full file contents by default. Diff mode (`--diff`) is
+  new and optional, and it parses strictly: exact context only, with no
+  fuzzy matching.
+- Vectors are hashed TF-IDF (standard library, 256 dimensions), not
+  neural embeddings.
+- Hybrid retrieval is experimental and unmeasured. Lexical retrieval is
+  the proven path.
+- Verification runs locally. There is no live sandbox in this submission.
+- Meta Model API is the only proposer claimed for this submission.
+  Baseten is wired, and its live run is pending.
+- Indexed files carry provenance: a SHA-256 content hash, plus git HEAD
+  and the last commit per file when the repo is a git repo.
+- The daemon polls file modification times, which is simple and portable.
 
 ## Roadmap to demo day (Nov 4, 9:00 PM ET / Nov 5, 7:30 AM IST)
 
-1. Claim credits, first live `propose` call against the sample repo.
-2. Unified-diff output mode (smaller, safer changes than full files).
-3. tree-sitter indexing for JS/TS so the demo isn't Python-only.
-4. A recorded demo: stale-interface bug fixed only because the graph
-   caught it — the exact failure mode vector-only agents miss.
-5. Partner forms: apply early for Baseten, Modal, and Fireworks credits
-   (limited seats); then a live run of each partner path — Baseten
-   open-weights propose, Fireworks aux summary, Modal sandbox verify.
+1. A recorded demo: a bug fixed only because the dependency graph found
+   the related code and verification proved the fix before it was
+   applied.
