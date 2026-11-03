@@ -38,8 +38,11 @@ proofbraid daemon <repo> [--once]       reindex on file change
 
 1. Retrieve spans: hybrid lexical plus local vector fusion (RRF, k=60).
    Lexical is the proven fallback when no vectors exist.
-2. Ask the chosen provider for new file contents (JSON, full files).
-3. Write the proposal into a disposable temp copy of the repo.
+2. Ask the chosen provider for new file contents (JSON, full files), or
+   with --diff for one unified diff per file.
+3. Write the proposal into a disposable temp copy of the repo. Diffs are
+   parsed strictly and applied in memory first; a malformed diff fails
+   the whole proposal and nothing is partly applied.
 4. Run verification on the temp copy: py_compile, optional linter,
    pytest or unittest when tests exist.
 5. On PASS: save the hypothesis, evict superseded ones, apply only with
@@ -68,7 +71,8 @@ src/proofbraid/
 examples/sample_repo/
   calc.py        sample with a deliberate off by one in add()
   test_calc.py   its tests (verify FAILS the sample as designed)
-tests/test_smoke.py   19 tests, all green
+tests/test_smoke.py      19 tests, all green
+tests/test_diff_mode.py  13 tests for --diff, all green
 ```
 
 Pure Python 3.10+, zero third party dependencies. `.venv` is git ignored.
@@ -118,11 +122,10 @@ export BASETEN_API_KEY="..." BASETEN_MODEL="meta-models/muse-spark-open-1026"
 proofbraid propose examples/sample_repo "fix the off by one in add()" --provider baseten
 ```
 
-Status: the provider path is wired and unit tested, but the LIVE Baseten
-propose has not run yet. It needs Md's key at runtime for a one time run.
-His call. Until that run succeeds, the demo must NOT claim a second
-proposer and the bonus stays unclaimed. The moment it succeeds, both the
-demo claim and the bonus path are live.
+Status: proven live. `propose --provider baseten` on the sample repo
+returned ok:true, verified:true, hypothesis recorded, dry run, in both
+full mode and --diff mode. The second proposer claim and the bonus path
+are live.
 
 Without any key, `propose --provider baseten` fails cleanly with
 instructions. Never hardcode a key. Never commit a key. Tests must pass
@@ -133,35 +136,36 @@ with no keys set (provider calls are mocked in the test suite).
 | Meta piece | Role in this submission |
 |---|---|
 | Meta Model API (Muse Spark 1.3) | Primary proposer. Default for every propose call. |
-| Baseten hosted Muse Spark Open | Second proposer on open weights. Live run pending Md's key. Bonus path when proven. |
+| Baseten hosted Muse Spark Open | Second proposer on open weights. Proven live. Bonus path. |
 | Muse Glimmer | Not used. No compute in play for it. |
 | Muse Code (Meta's terminal coding agent) | NOT a component of Proofbraid. Proofbraid is agent agnostic: it verifies what any coding agent proposes. Narrative role only: agents propose, Proofbraid verifies. Do not claim integration. |
 | Modal / Fireworks | Out. Code paths exist but stay unconfigured and unclaimed. |
 
 Judging gives 25% to creative use of Meta AI tools. That score comes from
 the Model API being the core of the propose loop, plus the open weights
-second proposer when the live run lands, plus a demo that shows both
+second proposer (proven live), plus a demo that shows both
 working. Not from name dropping other products.
 
 ## 7. What is proven (do not regress)
 
-- 19/19 unit tests pass (`python -m unittest discover -s tests`).
+- 32/32 unit tests pass (`python -m unittest discover -s tests`): the
+  19 smoke tests plus 13 diff mode tests.
 - Full loop proven live Oct 27 on the sample bug (Meta contributor tier).
+- Live runs on the sample bug, all ok:true and verified:true, dry run:
+  Meta full, Meta --diff, Baseten full, Baseten --diff.
 - Hybrid retrieval implemented and tested; vectors are hashed TF-IDF in
   stdlib, NOT neural embeddings. Docstrings say this plainly.
 - `.gitignore` excludes `.venv`, `__pycache__`, `.env`, runtime artifacts.
 - No real API keys anywhere in source; only env var references.
 
-## 8. What Junie is building now
+## 8. What Junie built
 
-One task (see the Junie prompt file, run in Junie CLI from the project
-root): unified diff output mode for `propose`, plus a docs truth pass
-that brings the README in line with this doc. Full file output stays the
-default; the proven loop must not break; all 19 tests stay green; new
-tests cover the diff mode. Junie runs locally and edits with approval; it
-does not need any API key. Tests must pass with no live keys (mocked
-provider, like the existing suite). The README truth pass must describe
-BOTH providers: Meta primary, Baseten second proposer (live run pending).
+Done: unified diff output mode for `propose` (`--diff`), plus a docs
+truth pass that brings the README in line with this doc. Full file output
+stays the default; the proven loop did not break; all 19 old tests stay
+green and 13 new tests cover diff mode. Tests pass with no live keys
+(mocked provider, like the existing suite). The README describes BOTH
+providers: Meta primary, Baseten second proposer.
 
 Explicitly NOT in scope: tree-sitter JS/TS indexing (Python only, stated
 honestly), Modal sandbox live run, Fireworks summaries.
@@ -186,20 +190,20 @@ python -m unittest discover -s tests
 - Vectors are hashed TF-IDF, not neural embeddings.
 - Hybrid retrieval is experimental and unmeasured; lexical is proven.
 - Verification runs locally; no live sandbox in this submission.
-- Second proposer (Baseten) claimable ONLY after the live propose run
-  succeeds with Md's key. Until then, one proposer: Meta Model API.
+- Two proposers: Meta Model API (primary) and Baseten (second, proven
+  live). Nothing beyond those two is claimed.
 - Demo video shows only Oct 26 to Nov 4 work.
 
 ## 11. Submission checklist
 
-- [ ] Junie task done, 19+ tests green, merged
-- [ ] Live Baseten propose run with Md's key (his call) — decides the
-  second proposer claim and the $10K bonus path
+- [x] Junie task done, 19+ tests green, merged
+- [x] Live Baseten propose run with Md's key: passed, so the second
+  proposer claim and the $10K bonus path are live
 - [ ] Repo pushed to GitHub and PUBLIC
 - [ ] Repo opens in a logged out browser (verify before submitting)
 - [ ] README matches this doc (both providers, honest limits)
 - [ ] 3 minute demo video recorded (event work only)
 - [ ] Submit at https://cerebralvalley.ai/e/meta-ai-developer-hackathon/hackathon/submit
 - [ ] Name Indie Dev Track, Meta Model API (Muse Spark), and Baseten
-  hosted Muse Spark Open explicitly (second only if the live run passed)
+  hosted Muse Spark Open explicitly (live run passed)
 - [ ] Demo posted on X (viral prize) after submission

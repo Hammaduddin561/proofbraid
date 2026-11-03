@@ -11,7 +11,8 @@ License: MIT, see LICENSE.
 Proofbraid is a dependency graph plus verify before apply plus hypothesis
 eviction. It maps a repo into a real dependency graph from the Python
 parser, retrieves only the code that is structurally related to a task,
-and asks the Meta Model API (Muse Spark) to propose a change. Before
+and asks the Meta Model API (Muse Spark), or Baseten hosted Muse Spark
+Open as the open weights second proposer, to propose a change. Before
 anything touches the real files, it checks that change in a disposable
 copy of the repo: compile, lint and tests. Verified fixes are recorded as
 hypotheses, and older hypotheses on the same files are evicted so stale
@@ -95,16 +96,17 @@ proofbraid propose <repo> "task" --apply   # only after a verified pass
 Without a key, `propose` fails cleanly with instructions instead of
 pretending to work.
 
-## Baseten hosted Muse Spark Open: wired, live run pending
+## Partner API: Baseten hosted Muse Spark Open, the second proposer
 
 Baseten serves Meta open weights through the same chat completions shape.
-The provider path is wired and unit tested, but the live Baseten run has
-not happened yet. Until it succeeds, this submission does not claim
-Baseten as a second proposer.
+It is the open weights second proposer, used with `--provider baseten`.
 
 - Base URL: `https://inference.baseten.co/v1`
 - Auth: `Authorization: Bearer $BASETEN_API_KEY`
 - Model: exactly `meta-models/muse-spark-open-1026`
+- Proven live: `propose --provider baseten` on the sample repo returned
+  `ok: true` and `verified: true` and recorded a hypothesis, as a dry run,
+  in both full mode and `--diff` mode.
 
 ```bash
 export BASETEN_API_KEY="..." BASETEN_MODEL="meta-models/muse-spark-open-1026"
@@ -134,8 +136,8 @@ skipped when no key is set.
 - Hybrid retrieval is experimental and unmeasured. Lexical retrieval is
   the proven path.
 - Verification runs locally. There is no live sandbox in this submission.
-- Meta Model API is the only proposer claimed for this submission.
-  Baseten is wired, and its live run is pending.
+- Two proposers are claimed: Meta Model API (primary) and Baseten hosted
+  Muse Spark Open (second). Nothing beyond those two is claimed.
 - Indexed files carry provenance: a SHA-256 content hash, plus git HEAD
   and the last commit per file when the repo is a git repo.
 - The daemon polls file modification times, which is simple and portable.
