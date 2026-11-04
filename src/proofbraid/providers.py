@@ -54,6 +54,15 @@ PROVIDERS = {
         "default_model": None,
         "role": "auxiliary calls (cheap, fast, small jobs)",
     },
+    # Any OpenAI compatible endpoint; all three settings come from env vars.
+    "custom": {
+        "base_url": None,
+        "base_url_env": "PROOFBRAID_BASE_URL",
+        "key_env": "PROOFBRAID_API_KEY",
+        "model_env": "PROOFBRAID_MODEL",
+        "default_model": None,
+        "role": "any OpenAI compatible chat completions endpoint",
+    },
 }
 
 
@@ -70,6 +79,16 @@ LAST_USAGE: dict = {}
 
 def _config(provider: str) -> tuple[str, str, str]:
     spec = PROVIDERS[provider]
+    if "base_url_env" in spec:
+        names = (spec["base_url_env"], spec["key_env"], spec["model_env"])
+        values = [os.environ.get(name, "").strip() for name in names]
+        missing = [name for name, value in zip(names, values) if not value]
+        if missing:
+            raise ProviderError(
+                f"{provider}: {', '.join(missing)} not set. Set "
+                f"{', '.join(names)} to use any OpenAI compatible endpoint."
+            )
+        return values[0].rstrip("/"), values[1], values[2]
     key = os.environ.get(spec["key_env"], "").strip()
     if not key:
         raise ProviderError(
@@ -145,12 +164,16 @@ def provider_status() -> list[dict]:
     for name, spec in PROVIDERS.items():
         key_set = bool(os.environ.get(spec["key_env"], "").strip())
         model = os.environ.get(spec["model_env"], "").strip() or spec["default_model"]
+        base_env = spec.get("base_url_env")
+        base_set = not base_env or bool(os.environ.get(base_env, "").strip())
         rows.append({
             "provider": name,
             "role": spec["role"],
             "key_env": spec["key_env"],
             "key_set": key_set,
             "model": model or "(not set — pick from the provider catalog)",
-            "ready": key_set and bool(model),
+            "ready": key_set and bool(model) and base_set,
         })
+        if base_env:
+            rows[-1].update(base_url_env=base_env, base_url_set=base_set)
     return rows

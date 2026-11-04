@@ -48,6 +48,9 @@ SYSTEM_PROMPT = (
     "spans you were given. Preserve everything else byte for byte."
 )
 
+MAX_RETRY = 5
+RETRY_ERROR_LIMIT = 4000
+
 DIFF_SYSTEM_PROMPT = (
     "You are a precise coding assistant. You will receive a task and the "
     "structurally related code spans from a real repository (symbols, "
@@ -179,9 +182,11 @@ def build_prompt(task: str, spans: list[graph_mod.Symbol], root: Path) -> str:
 
 def run_propose(root: Path, task: str, apply: bool = False,
                 provider: str = "meta", sandbox: str = "local",
-                diff: bool = False) -> dict:
-    """Run one propose cycle. Returns a report dict; never raises for
-    proposal failures — failures are reported, so the CLI can print them."""
+                diff: bool = False, retry: int = 1) -> dict:
+    """Run one propose cycle with up to `retry` attempts (clamped to 1..5).
+    Returns a report dict; never raises for proposal failures — failures
+    are reported, so the CLI can print them."""
+    retry = max(1, min(int(retry), MAX_RETRY))
     root = root.resolve()
     graph = graph_mod.load_graph(root) or graph_mod.index_repo(root)
     stale = graph_mod.stale_files(graph, root)
@@ -221,11 +226,71 @@ def run_propose(root: Path, task: str, apply: bool = False,
                 "provider_attempts": attempts, "mode": mode}
     # Snapshot usage now: the aux call later would overwrite LAST_USAGE.
     usage = dict(providers.LAST_USAGE)
-    files = proposal.get("files", []) if isinstance(proposal, dict) else []
+    base = {"provider": provider_used, "provider_attempts": attempts,
+            "mode": mode}
+    log: list[dict] = []
+    files: list = []
+    last_error = ""
+    report: dict = {}
+    for number in range(1, retry + 1):
+        if number > 1:
+            # Same provider as attempt 1; never switch between retries.
+            try:
+                proposal = providers.chat_json(
+                    provider_used, system,
+                    build_retry_prompt(prompt, files, last_error, diff))
+            except providers.ProviderError as exc:
+                report = {"ok": False, "error": str(exc), **base, "usage": usage}
+                log.append({"attempt": number, "ok": False,
+                            "error": str(exc)[:RETRY_ERROR_LIMIT]})
+                continue
+            usage = dict(providers.LAST_USAGE)
+        files = proposal.get("files", []) if isinstance(proposal, dict) else []
+        report = _attempt(root, task, files, diff, sandbox, apply,
+                          {**base, "usage": usage}, number)
+        if report["ok"]:
+            log.append({"attempt": number, "ok": True})
+            break
+        last_error = ("\n".join(report["failures"]) if report.get("failures")
+                      else report["error"])
+        log.append({"attempt": number, "ok": False,
+                    "error": last_error[:RETRY_ERROR_LIMIT]})
+        if report.pop("_fatal", False):
+            break
+    hashes = report.pop("_hashes", {})
+    if not report["ok"] and ("failures" in report or retry > 1):
+        store.record_hypothesis(
+            root, task, report.get("files", []), hashes, verified=False,
+            failures=report.get("failures") or [report["error"]],
+            attempts_used=len(log),
+        )
+    report.update(attempts_used=len(log), attempts=log)
+    return report
+
+
+def build_retry_prompt(prompt: str, files: list, error: str, diff: bool) -> str:
+    """Follow-up prompt after a failed attempt, in the original output mode."""
+    kind = "unified diffs" if diff else "full file contents"
+    return (
+        f"{prompt}\n\nYOUR PREVIOUS PROPOSAL ({kind}) FAILED VERIFICATION:\n"
+        f"{json.dumps({'files': files}, indent=2)}\n\n"
+        f"VERIFICATION OUTPUT:\n{error[:RETRY_ERROR_LIMIT]}\n\n"
+        f"Fix the reported problem and return a corrected proposal as "
+        f"{kind}, in exactly the same JSON format as before. Any diff must "
+        f"apply to the ORIGINAL repository files shown above."
+    )
+
+
+def _attempt(root: Path, task: str, files, diff: bool, sandbox: str,
+             apply: bool, base: dict, attempt: int) -> dict:
+    """Stage one proposal in a fresh temp copy and verify it. Records and
+    applies only on a verified pass; failures are left to the caller."""
+    provider_used = base["provider"]
+    attempts = base["provider_attempts"]
+    usage = base["usage"]
+    mode = base["mode"]
     if not isinstance(files, list) or not files:
-        return {"ok": False, "error": "model returned no files",
-                "provider": provider_used, "provider_attempts": attempts,
-                "usage": usage, "mode": mode}
+        return {"ok": False, "error": "model returned no files", **base}
 
     # Verify in a disposable copy, never the real repo.
     with tempfile.TemporaryDirectory(prefix="proofbraid-") as tmp:
@@ -287,18 +352,16 @@ def run_propose(root: Path, task: str, apply: bool = False,
             failures, via = verify.verify_repo(tmp_path), "local"
         else:
             return {"ok": False, "error": f"unknown sandbox {sandbox!r}",
-                    "provider": provider_used, "mode": mode}
+                    "provider": provider_used, "mode": mode, "_fatal": True}
         if failures:
-            store.record_hypothesis(
-                root, task, changed, _hashes(tmp_path, changed),
-                verified=False, failures=failures,
-            )
             return {"ok": False, "verified": False, "files": changed,
                     "failures": failures, "provider": provider_used,
                     "verified_via": via, "provider_attempts": attempts,
-                    "usage": usage, "mode": mode}
+                    "usage": usage, "mode": mode,
+                    "_hashes": _hashes(tmp_path, changed)}
         hyp = store.record_hypothesis(
-            root, task, changed, _hashes(tmp_path, changed), verified=True
+            root, task, changed, _hashes(tmp_path, changed), verified=True,
+            attempts_used=attempt,
         )
         if apply:
             for rel in changed:

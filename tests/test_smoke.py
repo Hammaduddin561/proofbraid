@@ -94,10 +94,10 @@ class TestPartners(unittest.TestCase):
                 meta_client.propose_file_contents("s", "u")
             self.assertIn("MODEL_API_KEY is not set", str(ctx.exception))
 
-    def test_provider_status_lists_all_three(self):
+    def test_provider_status_lists_presets_and_custom(self):
         rows = providers.provider_status()
         self.assertEqual({r["provider"] for r in rows},
-                         {"meta", "baseten", "fireworks"})
+                         {"meta", "baseten", "fireworks", "custom"})
 
     def test_sandbox_defaults_to_local(self):
         with _no_keys():

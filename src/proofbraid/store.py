@@ -32,6 +32,7 @@ class Hypothesis:
     verified: bool
     failures: list[str] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
+    attempts_used: int = 1
 
 
 def hypotheses_path(root: Path) -> Path:
@@ -60,6 +61,7 @@ def record_hypothesis(
     hashes: dict[str, str],
     verified: bool,
     failures: list[str] | None = None,
+    attempts_used: int = 1,
 ) -> Hypothesis:
     """Save a hypothesis; on verified success, evict superseded ones."""
     hypotheses = load_hypotheses(root)
@@ -77,6 +79,7 @@ def record_hypothesis(
         hashes=hashes,
         verified=verified,
         failures=failures or [],
+        attempts_used=attempts_used,
     )
     hypotheses.append(hyp)
     save_hypotheses(root, hypotheses)

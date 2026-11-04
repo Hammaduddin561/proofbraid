@@ -4,9 +4,10 @@ Usage:
     python3 -m proofbraid index <repo>
     python3 -m proofbraid graph <repo>
     python3 -m proofbraid verify <repo>
-    python3 -m proofbraid propose <repo> "task description" [--diff] [--apply]
+    python3 -m proofbraid propose <repo> "task description" [--diff] [--retry N] [--apply]
     python3 -m proofbraid daemon <repo> [--interval SECONDS] [--once]
     python3 -m proofbraid hypotheses <repo>
+    python3 -m proofbraid mcp
 """
 
 from __future__ import annotations
@@ -67,6 +68,7 @@ def _cmd_propose(args) -> int:
     report = propose_mod.run_propose(
         Path(args.repo), args.task, apply=args.apply,
         provider=args.provider, sandbox=args.sandbox, diff=args.diff,
+        retry=args.retry,
     )
     print(json.dumps(report, indent=2))
     return 0 if report.get("ok") else 1
@@ -91,6 +93,16 @@ def _cmd_providers(args) -> int:
         print(f"           key: {row['key_env']} "
               f"({'set' if row['key_set'] else 'missing'}); "
               f"model: {row['model']}")
+        if row.get("base_url_env"):
+            print(f"           base url: {row['base_url_env']} "
+                  f"({'set' if row['base_url_set'] else 'missing'})")
+    return 0
+
+
+def _cmd_mcp(args) -> int:
+    from proofbraid import mcp_server  # noqa: E402
+    print("proofbraid MCP server listening on stdio", file=sys.stderr)
+    mcp_server.serve()
     return 0
 
 
@@ -125,11 +137,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task")
     p.add_argument("--diff", action="store_true",
                    help="request and apply strict unified diffs")
+    p.add_argument("--retry", type=int, default=1, metavar="N",
+                   help="total attempts (default 1, max 5); each failed "
+                        "verification is fed back to the same provider")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--provider", default="meta",
-                   choices=["meta", "baseten", "fireworks", "all"],
+                   choices=["meta", "baseten", "fireworks", "custom", "all"],
                    help="meta=primary, baseten=open-weights, "
-                        "fireworks=aux-capable, all=cascade in that order")
+                        "fireworks=aux-capable, custom=any OpenAI compatible "
+                        "endpoint from PROOFBRAID_BASE_URL/API_KEY/MODEL, "
+                        "all=cascade meta, baseten, fireworks")
     p.add_argument("--sandbox", default="local", choices=["local", "modal"],
                    help="modal runs verification in a Modal sandbox, "
                         "falling back to local when unconfigured")
@@ -153,6 +170,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="build the hybrid-retrieval vector shards for a repo")
     p.add_argument("repo")
     p.set_defaults(func=_cmd_vectors)
+
+    p = sub.add_parser("mcp",
+                       help="run the MCP server (JSON-RPC over stdio)")
+    p.set_defaults(func=_cmd_mcp)
 
     return parser
 

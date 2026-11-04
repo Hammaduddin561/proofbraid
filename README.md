@@ -25,11 +25,12 @@ a verified pass and an explicit `--apply` flag.
 proofbraid index <repo>                 parse repo -> .proofbraid/graph.json
 proofbraid graph <repo>                 print symbols and call edges
 proofbraid vectors <repo>               build local hybrid retrieval shards
-proofbraid propose <repo> "task" [--provider meta|baseten] [--diff] [--apply]
+proofbraid propose <repo> "task" [--provider meta|baseten|custom] [--diff] [--retry N] [--apply]
 proofbraid verify <repo>                run the verification loop directly
 proofbraid hypotheses <repo>            list saved and evicted hypotheses
 proofbraid providers                    show provider roles and config state
 proofbraid daemon <repo> [--once]       reindex on file change
+proofbraid mcp                          run the MCP server on stdio
 ```
 
 What `propose` does:
@@ -50,6 +51,20 @@ What `propose` does:
 5. On a pass it saves the hypothesis, evicts superseded ones, and applies
    the change only with `--apply`. On a failure it reports the reasons and
    leaves the real repo untouched.
+
+`--retry N` allows up to N total attempts (default 1, capped at 5). When
+an attempt fails verification, the task, the failed proposal and the
+failure output (cut to 4000 characters) go back to the same provider,
+which is asked for a corrected proposal in the same format (full files,
+or diffs with `--diff`). Every attempt is checked in its own fresh temp
+copy against the repo's own tests, and `--apply` only fires after a
+verified pass. The result JSON adds `attempts_used` and a per attempt
+`attempts` list. Retries are bounded; there is no promise that the model
+converges on a fix.
+
+```bash
+proofbraid propose examples/sample_repo "fix the off by one in add()" --retry 3
+```
 
 The code also accepts `--provider fireworks`, `--provider all` and
 `--sandbox modal`. These exist in code but are not configured or claimed
@@ -116,6 +131,65 @@ proofbraid propose examples/sample_repo "fix the off by one in add()" --provider
 Without a key, `propose --provider baseten` fails cleanly with
 instructions.
 
+## Works with any AI
+
+The contract is simple: any model behind an OpenAI compatible chat
+completions endpoint (POST `/chat/completions` with a Bearer key). The
+meta, baseten and fireworks presets are conveniences, not the limit.
+`--provider custom` reads three environment variables, all required:
+
+- `PROOFBRAID_BASE_URL`: the API base, ending before `/chat/completions`
+- `PROOFBRAID_API_KEY`: the key sent as the Bearer token
+- `PROOFBRAID_MODEL`: the model name the endpoint expects
+
+If one is missing, `propose` stops before any network call and names the
+missing variable. `proofbraid providers` shows whether custom is ready.
+Example with a local Ollama server (Ollama ignores the key, but one must
+be set):
+
+```bash
+export PROOFBRAID_BASE_URL="http://localhost:11434/v1"
+export PROOFBRAID_API_KEY="ollama"
+export PROOFBRAID_MODEL="qwen2.5-coder"
+proofbraid propose examples/sample_repo "fix the off by one in add()" --provider custom
+```
+
+Scope: OpenAI compatible shape only. There is no native Anthropic or
+Gemini API support; use them only through an OpenAI compatible gateway.
+Note that `PROOFBRAID_MODEL` is also the model override for the meta
+preset.
+
+## Use from any AI agent (MCP)
+
+MCP (Model Context Protocol) is the open standard that lets AI agents call
+outside tools. `proofbraid mcp` runs a stdio MCP server (JSON-RPC 2.0, one
+message per line) that exposes five tools:
+
+- `index_repository(repo_path)`: index a repo, report files and symbols
+- `get_graph(repo_path)`: symbols and call edges, first 200 symbols
+- `verify_repo(repo_path)`: run verification, report pass or fail
+- `propose_change(repo_path, task, provider, apply)`: the propose flow,
+  dry run by default, apply only after a verified pass
+- `list_hypotheses(repo_path)`: the recorded hypotheses
+
+Point an agent at it by using `proofbraid mcp` as the stdio command, for
+example:
+
+```json
+{
+  "mcpServers": {
+    "proofbraid": {
+      "command": "proofbraid",
+      "args": ["mcp"],
+      "env": {"MODEL_API_KEY": "your key here"}
+    }
+  }
+}
+```
+
+Scope: the minimal MCP surface only (`initialize`, `tools/list`,
+`tools/call`). No resources, prompts or sampling.
+
 ## Modal and Fireworks
 
 Code paths for a Modal sandbox (`src/proofbraid/sandbox.py`) and Fireworks
@@ -138,6 +212,8 @@ skipped when no key is set.
 - Verification runs locally. There is no live sandbox in this submission.
 - Two proposers are claimed: Meta Model API (primary) and Baseten hosted
   Muse Spark Open (second). Nothing beyond those two is claimed.
+- `--retry`, `--provider custom` and `proofbraid mcp` are covered by mocked
+  tests only; they have not been run live against a model or an agent.
 - Indexed files carry provenance: a SHA-256 content hash, plus git HEAD
   and the last commit per file when the repo is a git repo.
 - The daemon polls file modification times, which is simple and portable.
