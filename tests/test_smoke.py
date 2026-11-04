@@ -59,7 +59,7 @@ if __name__ == "__main__":
 import os
 from unittest import mock
 
-from proofbraid import aux as aux_mod  # noqa: E402
+from proofbraid import aux_calls as aux_mod  # noqa: E402
 from proofbraid import meta_client  # noqa: E402
 from proofbraid import propose as propose_mod  # noqa: E402
 from proofbraid import providers  # noqa: E402

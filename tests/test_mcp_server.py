@@ -94,6 +94,15 @@ class TestMcpServer(unittest.TestCase):
         self.assertEqual(unknown["error"]["code"], -32602)
         self.assertIn("repo_path", missing["error"]["message"])
 
+    def test_non_object_params_are_clean_errors_and_server_continues(self):
+        bad_params, bad_args, listed = _rpc(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": [1]},
+            _call("verify_repo", [str(SAMPLE)], 2),
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
+        self.assertEqual(bad_params["error"]["code"], -32602)
+        self.assertEqual(bad_args["error"]["code"], -32602)
+        self.assertIn("tools", listed["result"])
+
 
 if __name__ == "__main__":
     unittest.main()

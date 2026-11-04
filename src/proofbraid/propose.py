@@ -23,7 +23,7 @@ import sys
 import tempfile
 from pathlib import Path, PureWindowsPath
 
-from . import aux as aux_mod
+from . import aux_calls as aux_mod
 from . import graph as graph_mod
 from . import providers
 from . import sandbox as sandbox_mod
@@ -199,6 +199,8 @@ def run_propose(root: Path, task: str, apply: bool = False,
     except Exception:
         # Retrieval must never block the propose loop; lexical is proven.
         spans = graph_mod.retrieve_spans(graph, task)
+    # shortcut: first 12 symbols, upgrade to a smarter fallback for large repos.
+    spans = spans or graph.symbols[:12]
     prompt = build_prompt(task, spans, root)
     mode = "diff" if diff else "full"
     system = DIFF_SYSTEM_PROMPT if diff else SYSTEM_PROMPT
@@ -291,6 +293,17 @@ def _attempt(root: Path, task: str, files, diff: bool, sandbox: str,
     mode = base["mode"]
     if not isinstance(files, list) or not files:
         return {"ok": False, "error": "model returned no files", **base}
+    for entry in files:
+        rel = entry.get("path", "") if isinstance(entry, dict) else ""
+        if not isinstance(rel, str) or not rel:
+            continue
+        name = PureWindowsPath(rel).name.lower()
+        if ((name in {"sitecustomize.py", "usercustomize.py", "conftest.py"}
+             or name.endswith(".pth")) and not (root / rel).is_file()):
+            return {"ok": False,
+                    "error": f"proposal adds protected file {rel!r}",
+                    "provider": provider_used, "provider_attempts": attempts,
+                    "usage": usage, "mode": mode}
 
     # Verify in a disposable copy, never the real repo.
     with tempfile.TemporaryDirectory(prefix="proofbraid-") as tmp:

@@ -112,6 +112,44 @@ class TestRetry(unittest.TestCase):
         self.assertEqual(chat.call_count, 5)
         self.assertEqual(report["attempts_used"], 5)
 
+    def test_given_new_conftest_when_retry_then_rejects_it_and_recovers(self):
+        unsafe = self._full("return a + b")
+        unsafe["files"].append({"path": "conftest.py", "content": ""})
+        report, _ = self._run([unsafe, self._full("return a + b")],
+                              retry=2, apply=True)
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["attempts_used"], 2)
+        self.assertIn("conftest.py", report["attempts"][0]["error"])
+        self.assertFalse((self.repo / "conftest.py").exists())
+        self.assertIn("return a + b\n", (self.repo / "calc.py").read_text())
+
+    def test_given_existing_conftest_when_updated_then_proposal_is_allowed(self):
+        conftest = self.repo / "conftest.py"
+        conftest.write_text("# existing config\n")
+        proposal = self._full("return a + b")
+        proposal["files"].append({"path": "conftest.py",
+                                   "content": "# updated config\n"})
+
+        report, _ = self._run([proposal])
+
+        self.assertTrue(report["ok"], report)
+
+    def test_given_no_retrieval_matches_when_proposing_then_prompt_includes_code(self):
+        with mock.patch.object(propose_mod.vectors_mod, "retrieve_hybrid",
+                               return_value=[]), \
+                mock.patch.object(propose_mod.providers, "chat_json",
+                                  return_value=self._full("return a + b")) as chat, \
+                mock.patch.object(propose_mod.aux_mod,
+                                  "summarize_hypothesis", return_value=None):
+            report = propose_mod.run_propose(
+                self.repo, "unrelated request with no matching words")
+
+        self.assertTrue(report["ok"], report)
+        prompt = chat.call_args.args[2]
+        self.assertIn("calc.py", prompt)
+        self.assertIn("def add", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

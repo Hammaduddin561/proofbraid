@@ -128,6 +128,8 @@ def handle(message) -> dict | None:
         return None  # notification, e.g. notifications/initialized
     method = message["method"]
     params = message.get("params") or {}
+    if not isinstance(params, dict):
+        return _error(msg_id, -32602, "params must be an object")
     if method == "initialize":
         result = {"protocolVersion": params.get("protocolVersion", PROTOCOL_VERSION),
                   "capabilities": {"tools": {}},
@@ -139,8 +141,10 @@ def handle(message) -> dict | None:
     elif method == "tools/call":
         name = params.get("name")
         args = params.get("arguments") or {}
-        if name not in TOOLS:
+        if not isinstance(name, str) or name not in TOOLS:
             return _error(msg_id, -32602, f"unknown tool {name!r}")
+        if not isinstance(args, dict):
+            return _error(msg_id, -32602, "arguments must be an object")
         missing = [k for k in TOOLS[name][2]()["required"] if k not in args]
         if missing:
             return _error(msg_id, -32602,

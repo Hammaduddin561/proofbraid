@@ -193,7 +193,7 @@ Scope: the minimal MCP surface only (`initialize`, `tools/list`,
 ## Modal and Fireworks
 
 Code paths for a Modal sandbox (`src/proofbraid/sandbox.py`) and Fireworks
-summaries (`src/proofbraid/aux.py`, `src/proofbraid/providers.py`) exist in
+summaries (`src/proofbraid/aux_calls.py`, `src/proofbraid/providers.py`) exist in
 the repo. They are not configured, not tested live, and not claimed in
 this submission. Verification runs locally, and the Fireworks summary is
 skipped when no key is set.
