@@ -14,6 +14,7 @@ Returns a list of failure strings; empty means verified.
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -60,7 +61,7 @@ def verify_repo(root: Path) -> list[str]:
         for p in py_files
     ) or (root / "tests").exists()
     if has_tests:
-        if shutil.which("pytest"):
+        if importlib.util.find_spec("pytest"):
             code, out = _run(
                 [sys.executable, "-m", "pytest", "-q"], cwd=root, timeout=300
             )
