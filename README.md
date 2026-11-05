@@ -1,8 +1,6 @@
 # Proofbraid: a local coding agent that verifies before it applies
 
-Proofbraid is a local developer tool built for the Meta Global AI Developer
-Hackathon (Indie Dev Track). It stops AI coding agents from breaking code
-during long tasks that touch many files.
+Proofbraid is a local developer tool. It stops AI coding agents from breaking code during long tasks that touch many files.
 
 License: MIT, see LICENSE.
 
@@ -67,8 +65,7 @@ proofbraid propose examples/sample_repo "fix the off by one in add()" --retry 3
 ```
 
 The code also accepts `--provider fireworks`, `--provider all` and
-`--sandbox modal`. These exist in code but are not configured or claimed
-for this submission.
+`--sandbox modal`. These exist in code but are not configured.
 
 ## How to run
 
@@ -194,9 +191,7 @@ Scope: the minimal MCP surface only (`initialize`, `tools/list`,
 
 Code paths for a Modal sandbox (`src/proofbraid/sandbox.py`) and Fireworks
 summaries (`src/proofbraid/aux_calls.py`, `src/proofbraid/providers.py`) exist in
-the repo. They are not configured, not tested live, and not claimed in
-this submission. Verification runs locally, and the Fireworks summary is
-skipped when no key is set.
+the repo. They are not configured or tested live. Verification runs locally, and the Fireworks summary is skipped when no key is set.
 
 ## Scope and honest limits
 
@@ -209,17 +204,10 @@ skipped when no key is set.
   neural embeddings.
 - Hybrid retrieval is experimental and unmeasured. Lexical retrieval is
   the proven path.
-- Verification runs locally. There is no live sandbox in this submission.
-- Two proposers are claimed: Meta Model API (primary) and Baseten hosted
-  Muse Spark Open (second). Nothing beyond those two is claimed.
-- `--retry`, `--provider custom` and `proofbraid mcp` are covered by mocked
-  tests only; they have not been run live against a model or an agent.
+- Verification runs locally. There is no live sandbox.
+- Two proposers are supported: Meta Model API (primary) and Baseten hosted Muse Spark Open (second).
+- `--provider custom` and `proofbraid mcp` are covered by mocked tests only and have not been run live against a model or an agent.
 - Indexed files carry provenance: a SHA-256 content hash, plus git HEAD
   and the last commit per file when the repo is a git repo.
 - The daemon polls file modification times, which is simple and portable.
 
-## Roadmap to demo day (Nov 4, 9:00 PM ET / Nov 5, 7:30 AM IST)
-
-1. A recorded demo: a bug fixed only because the dependency graph found
-   the related code and verification proved the fix before it was
-   applied.
